@@ -1,6 +1,10 @@
 
 # %% Change working directory from the workspace root to the ipynb file location. Turn this addition off with the DataScience.changeDirOnImportExport setting
 # ms-python.python added
+from sklearn.linear_model import LinearRegression
+from sklearn.pipeline import FeatureUnion
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder
 from sklearn.impute import SimpleImputer
 from pandas.plotting import scatter_matrix
@@ -156,7 +160,7 @@ corr_matrix["median_house_value"].sort_values(ascending=False)
 
 # %%
 housing_data = strat_train_set.drop("median_house_value", axis=1)
-housing_labels = strat_train_set["median_house_value"].copy
+housing_labels = strat_train_set["median_house_value"].copy()
 
 # clean data
 # housing_data.dropna(subset=["total_bedrooms"]) # first option -> drop rows with missing value
@@ -232,6 +236,86 @@ class CombinedAttributesAdder(BaseEstimator, TransformerMixin):
 
 attr_adder = CombinedAttributesAdder(add_bedrooms_per_room=False)
 housing_extra_attribs = attr_adder.transform(housing_data.values)
+
+
+# %% pipes
+
+num_pipeline = Pipeline([
+    ('imputer', SimpleImputer(strategy="median")),
+    ('attribs_adder', CombinedAttributesAdder()),
+    ('std_scaler', StandardScaler()),
+])
+
+housing_num_tr = num_pipeline.fit_transform(housing_data_num)
+housing_num_tr
+
+# %%
+
+
+class DataFrameSelector(BaseEstimator, TransformerMixin):
+    def __init__(self, attribute_names):
+        self.attribute_names = attribute_names
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X):
+        return X[self.attribute_names].values
+
+
+class CustomLabelBinarizer(BaseEstimator, TransformerMixin):
+    def __init__(self, sparse_output=False):
+        self.sparse_output = sparse_output
+
+    def fit(self, X, y=None):
+        self.enc = LabelBinarizer(sparse_output=self.sparse_output)
+        self.enc.fit(X)
+        return self
+
+    def transform(self, X, y=None):
+        return self.enc.transform(X)
+
+
+num_attribs = list(housing_data_num)
+cat_attribs = ["ocean_proximity"]
+
+num_pipeline = Pipeline([
+    ('selector', DataFrameSelector(num_attribs)),
+    ('imputer', SimpleImputer(strategy="median")),
+    ('attribs_adder', CombinedAttributesAdder()),
+    ('std_scaler', StandardScaler()),
+])
+
+cat_pipeline = Pipeline([
+    ('selector', DataFrameSelector(cat_attribs)),
+    ('cat_encoder', CustomLabelBinarizer()),
+])
+
+
+# %%
+
+
+full_pipeline = FeatureUnion(transformer_list=[
+    ("num_pipeline", num_pipeline),
+    ("cat_pipeline", cat_pipeline),
+])
+
+housing_data_prepared = full_pipeline.fit_transform(housing_data)
+housing_data_prepared
+
+
+# %%
+housing_data_prepared.shape
+
+# %% training linear model
+lin_reg = LinearRegression()
+lin_reg.fit(housing_data_prepared, housing_labels)
+
+some_data = housing_data.iloc[:5]
+some_labels = housing_labels.iloc[:5]
+some_data_prepared = full_pipeline.transform(some_data)
+print("Predicted: ", lin_reg.predict(some_data_prepared))
+print("Labels: ", list(some_labels))
 
 
 # %%
